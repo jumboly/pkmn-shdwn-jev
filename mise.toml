@@ -1,0 +1,71 @@
+# Why: Node >=22.18 is required by pokemon-showdown; 24 LTS also gives native
+# TypeScript type-stripping so we can run .ts without a build step.
+# Why: mask only the secret; redacting every .env value also masks digits like "0" in output.
+redactions = ["AI_GATEWAY_API_KEY"]
+
+[tools]
+node = "24.21.0"
+
+[env]
+# Why: load secrets (AI_GATEWAY_API_KEY) from an untracked .env instead of
+# hardcoding them anywhere.
+_.file = ".env"
+
+[tasks.test]
+description = "Unit/integration tests (never calls live JEV)"
+run = "node --test 'test/**/*.test.ts'"
+
+[tasks.typecheck]
+run = "npx tsc --noEmit"
+
+[tasks.check]
+depends = ["typecheck", "test"]
+
+[tasks.jev-smoke]
+description = "ONE live JEV request (costs money; budget-guarded)"
+run = "node scripts/jev-smoke.ts"
+
+[tasks.server-setup]
+description = "Clone + build the Showdown server into vendor/ (pinned commit)"
+run = """
+[ -d vendor/pokemon-showdown ] || git clone https://github.com/smogon/pokemon-showdown vendor/pokemon-showdown
+git -C vendor/pokemon-showdown checkout -q a5df8274e85b0889bf2a9b3422a08b39732374fc || git -C vendor/pokemon-showdown fetch --depth 50 origin
+cd vendor/pokemon-showdown && npm ci --no-audit --no-fund && node build
+# Why: env PSBINDADDR is overwritten by the parent process from Config.bindaddress.
+grep -q "^exports.bindaddress = '127.0.0.1'" config/config.js || printf "\nexports.bindaddress = '127.0.0.1';\n" >> config/config.js
+"""
+
+[tasks.server]
+description = "Local Showdown server on 127.0.0.1 (dev mode: /trn login without tokens)"
+dir = "vendor/pokemon-showdown"
+run = "node pokemon-showdown start --no-security --skip-build ${PSPORT:-8000}"
+
+[tasks.jev-bot]
+description = "Autonomous Mode: JEV joins the local server as a player"
+run = "node scripts/jev-bot.ts"
+
+[tasks.copilot]
+description = "Copilot Mode: proxy on :8000 (server must run on :8001), advice UI on :8010"
+run = "node scripts/copilot.ts"
+
+[tasks.analyze]
+description = "Offline analysis of runs/<id> directories (no API calls)"
+run = "node scripts/analyze.ts"
+
+[tasks.dry]
+description = "End-to-end dry run with the fault-injecting mock JEV (no API calls, no project ledger)"
+# Why: everything except JEV's judgement (retries on 429/503/network, invalid-answer rejection,
+# limiter, ledger, logs, replays, analysis) should be proven before spending on a live run.
+run = """
+id="dry-flaky-$(date +%Y%m%d-%H%M%S)"
+node scripts/experiment.ts --p1 mock-jev --p2 mock-jev-mercy --mercy-strength 1 --battles ${DRY_BATTLES:-4} --mock-profile flaky --seed dry --id "$id"
+node scripts/analyze.ts "runs/$id"
+"""
+
+[tasks.spectate]
+description = "Local server + two bots battling each other; watch at https://localhost.psim.us/ (default: mock JEV, no cost)"
+run = "node scripts/launch.ts spectate"
+
+[tasks.play]
+description = "Local server + Copilot proxy/advice UI + opponent bot in one command (default: mock JEV, no cost)"
+run = "node scripts/launch.ts copilot"

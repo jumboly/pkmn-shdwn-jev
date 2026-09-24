@@ -1,0 +1,10 @@
+node_modules/
+.env
+.env.*
+!.env.example
+# Why: experiment outputs and the cost ledger are local artifacts; the ledger
+# is intentionally kept out of git but must NOT be deleted casually (budget).
+runs/
+vendor/
+*.log
+.DS_Store
