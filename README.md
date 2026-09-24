@@ -8,6 +8,8 @@ JEV (`typesafe-ai/jev`, reached through the Vercel AI Gateway) makes Pokémon ba
 
 Not affiliated with Nintendo, The Pokémon Company, GAME FREAK, Creatures, Smogon or Pokémon Showdown. See [docs/licensing.md](docs/licensing.md).
 
+Repository: <https://github.com/jumboly/pkmn-shdwn-jev>
+
 Design decisions and their rationale: [docs/decisions.md](docs/decisions.md). Progress: [docs/implementation-status.md](docs/implementation-status.md).
 
 ## Setup
