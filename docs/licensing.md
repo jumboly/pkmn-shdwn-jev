@@ -20,6 +20,11 @@ Other dependencies: `ws` (MIT), `typescript` (Apache-2.0), `@types/*` (MIT).
 5. **Client code: use it, do not fork it by default.** Copilot uses a proxy plus a separate companion page, so no AGPL client code is modified or redistributed. A future client fork or copied client code would bring AGPL obligations (source disclosure for network use). That needs a separate decision.
 6. **No affiliation.** This project is not affiliated with or endorsed by Nintendo, The Pokémon Company, GAME FREAK, Creatures, Smogon or Pokémon Showdown. Any public README or UI must say so.
 
+## This project's license
+- **MIT** (`LICENSE`), chosen by the user on 2026-09-24 when the repository went public.
+- Why: it matches the Showdown server and all runtime dependencies are MIT/Apache-2.0, so nothing forces a copyleft license.
+- It covers this repository's own code only. It grants nothing for Pokémon IP (see above).
+- If AGPL client code is ever incorporated (rule 5), the affected parts would need AGPL, so that needs a separate decision.
+
 ## Open questions
-- **non-blocking**: this project's own license has not been chosen. That is the user's decision. MIT would match the Showdown server. If client code is ever incorporated, AGPL compatibility becomes a constraint.
 - **non-blocking**: if Copilot or replays are ever hosted publicly, review Pokémon Showdown's terms for embedding `replay-embed.js` and sprites from their servers, and the Pokémon trademark guidelines.
