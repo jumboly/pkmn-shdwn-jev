@@ -69,3 +69,45 @@ run = "node scripts/launch.ts spectate"
 [tasks.play]
 description = "Local server + Copilot proxy/advice UI + opponent bot in one command (default: mock JEV, no cost)"
 run = "node scripts/launch.ts copilot"
+
+[tasks.budget]
+description = "Read-only project spend from runs/jev-cost-ledger.jsonl (no API calls)"
+# Why: docs must not hardcode spend (it goes stale after every live run); the ledger is the
+# single source of truth. This sums costUsd exactly as BudgetGuard does (costUsd is already
+# booked at max(cost, marketCost)) and only reads the file, never writes or locks it.
+run = '''
+node -e '
+const fs = require("node:fs");
+const path = "runs/jev-cost-ledger.jsonl";
+if (!fs.existsSync(path)) { console.log("no ledger yet: " + path); process.exit(0); }
+const stop = Number(process.env.EXPERIMENT_STOP_THRESHOLD_USD ?? 4.5);
+const cap = Number(process.env.EXPERIMENT_BUDGET_USD ?? 5);
+let n = 0, err = 0, total = 0; const byExp = new Map();
+for (const line of fs.readFileSync(path, "utf8").split("\n")) {
+  if (!line.trim()) continue;
+  const e = JSON.parse(line);
+  n++; if (e.status !== "ok") err++; total += e.costUsd;
+  const k = e.experimentId ?? "?";
+  const v = byExp.get(k) ?? { n: 0, usd: 0 }; v.n++; v.usd += e.costUsd; byExp.set(k, v);
+}
+if (process.argv.includes("--by-experiment")) for (const [k, v] of byExp) console.log(`${v.usd.toFixed(4)}  ${String(v.n).padStart(5)}  ${k}`);
+console.log(`requests ${n} (errors ${err}), booked $${total.toFixed(4)}`);
+console.log(`remaining before stop threshold $${stop.toFixed(2)}: $${(stop - total).toFixed(4)} (hard cap $${cap.toFixed(2)})`);
+' -- "$@"
+'''
+
+[tasks.clean-runs]
+description = "Delete local mock/debug outputs runs/dry-* and runs/spectate-* only (no API calls)"
+# Why: these are mock-JEV smoke outputs (mise run dry / spectate) that pile up and are never
+# cited by the docs. Everything else under runs/ is deliberately out of reach:
+#   - jev-cost-ledger.jsonl is the budget's source of truth (deleting it resets the guard),
+#   - live-* / *.out / probes/ back the numbers in docs/experiments.md and docs/decisions.md,
+#   - copilot-* holds human battle logs and server-* is kept for the user to decide on.
+# An explicit allowlist of two name prefixes at depth 1 (instead of a denylist or a glob
+# over runs/) means a new kind of output is kept by default rather than deleted by accident.
+# find does not follow symlinks, so a link named dry-* cannot reach outside runs/.
+# Don't run it while `mise run dry` / `mise run spectate` is still writing its directory.
+run = '''
+[ -d runs ] || { echo "no runs/ directory"; exit 0; }
+find runs -mindepth 1 -maxdepth 1 \( -name 'dry-*' -o -name 'spectate-*' \) -print -exec rm -rf {} +
+'''

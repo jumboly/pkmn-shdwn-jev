@@ -1,4 +1,4 @@
-# pokemon-showdown-jev
+# pkmn-shdwn-jev
 
 JEV (`typesafe-ai/jev`, reached through the Vercel AI Gateway) makes Pokémon battle decisions on top of Pokémon Showdown.
 
@@ -10,7 +10,7 @@ Not affiliated with Nintendo, The Pokémon Company, GAME FREAK, Creatures, Smogo
 
 Repository: <https://github.com/jumboly/pkmn-shdwn-jev>
 
-Design decisions and their rationale: [docs/decisions.md](docs/decisions.md). Progress: [docs/implementation-status.md](docs/implementation-status.md).
+Design decisions and their rationale: [docs/decisions.md](docs/decisions.md). Progress: [docs/implementation-status.md](docs/implementation-status.md). Measured results: [docs/experiments.md](docs/experiments.md).
 
 ## Setup
 
@@ -29,7 +29,7 @@ Run everything through `mise run …` or `mise exec -- …` so that `.env` is lo
 The app-side guard is primary, but also cap the key on Vercel's side. Verified against the Vercel CLI docs on 2026-09-24; CLI ≥ 59.13 uses `--limit`, older versions use the deprecated `--budget`:
 
 ```sh
-vercel ai-gateway api-keys create --name pokemon-showdown-jev --limit 5 --refresh-period none
+vercel ai-gateway api-keys create --name pkmn-shdwn-jev --limit 5 --refresh-period none
 # existing key: vercel ai-gateway budgets set api-key <name|id> --limit 5 --refresh-period none
 #   (note: `budgets set` defaults to monthly, so pass --refresh-period none explicitly)
 ```
@@ -49,7 +49,8 @@ Vercel's budget is a soft cap: the request that crosses the limit still complete
 | `JEV_MAX_PAYLOAD_BYTES` | 24000 | local payload cap (see D10: the gateway fails with 503 above content-dependent sizes) |
 
 - All live spend is appended to `runs/jev-cost-ledger.jsonl`. It is cumulative across runs. **Do not delete it.**
-- Each request is booked at `max(cost, marketCost)`, so the current free promotion (`cost: 0`) does not weaken the guard.
+- `mise run budget` reads the ledger (read-only) and prints the booked total and the remaining headroom.
+- Each request is booked at `max(cost, marketCost)`, so a promotion that reports `cost: 0` does not weaken the guard.
 - Experiments stop starting battles when the remaining headroom is too small, and they log why.
 
 ## Modes
@@ -107,16 +108,18 @@ The bot refuses non-local servers. Connecting to the official public server is i
 ### Copilot Mode (you play; JEV only advises)
 
 ```sh
-PSPORT=8001 mise run server
-node scripts/copilot.ts                 # proxy :8000 -> :8001, advice page http://127.0.0.1:8010/
-node scripts/jev-bot.ts --url ws://localhost:8001/showdown/websocket --provider random   # an opponent
+mise run play                                     # mock JEV advice (no cost)
+mise run play -- --provider jev --opponent random # live JEV advice (budget-guarded)
 ```
+
+`mise run play` starts the server, the Copilot proxy (`:8000`, in front of the server on `:8001`), the advice page `http://127.0.0.1:8010/` and an opponent bot (see [One-command launcher](#one-command-launcher)).
 
 Play at `https://localhost.psim.us/`. Advice appears inside the battle log of the same window. The separate page `http://127.0.0.1:8010/` shows more detail, such as both active Pokémon and field conditions.
 
 - For each of your turns the advice page shows the legal choices with deterministic game data (type, power, accuracy, priority, PP, type chart vs the visible foe), plus JEV's probabilities and confidence.
 - JEV **never** sends a move for you.
 - Your actual choice and whether it matched JEV are logged in `runs/copilot-*/copilot.jsonl`.
+- Manual start, only if you need to run the pieces separately: `PSPORT=8001 mise run server`, then `mise run copilot`, then an opponent such as `node scripts/jev-bot.ts --url ws://localhost:8001/showdown/websocket --provider random`.
 
 ## Adaptive Strength
 
@@ -139,5 +142,4 @@ Every decision logs the mode, strength, advantage breakdown, JEV's original top 
 - `mise run test`: unit tests, simulator battles, the information-boundary check, mock-JEV pipeline, budget guard and handicap.
 - If `vendor/` has been built, it also runs server integration tests (autonomous clients, and the copilot proxy with a scripted human).
 - No test calls the paid API.
-- Live checks are explicit scripts: `mise run jev-smoke` (one request) and `scripts/probe-payload.ts`.
-- Both scripts go through the budget guard.
+- The live check is explicit: `mise run jev-smoke` sends one request through the budget guard.
