@@ -8,11 +8,8 @@
 import { parseArgs } from 'node:util';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { BudgetGuard, budgetConfigFromEnv } from '../src/budget.ts';
-import { jevFromEnv, mockJev, openBudget } from '../src/config.ts';
-import { HandicapProvider } from '../src/decision/handicap.ts';
+import { PLAYER_KINDS, baseKind, makeProvider, openBudget, openMockBudget } from '../src/config.ts';
 import { RandomProvider } from '../src/decision/random.ts';
-import type { DecisionProvider } from '../src/decision/types.ts';
 import { AutonomousClient } from '../src/server/client.ts';
 import { startCopilot } from '../src/copilot/proxy.ts';
 import { waitForServer } from '../src/server/wait.ts';
@@ -46,22 +43,18 @@ if (!existsSync('vendor/pokemon-showdown/dist/server/index.js')) {
 
 const runId = `${mode}-${new Date().toISOString().replace(/[:.]/g, '-')}`;
 const logDir = `runs/${runId}`;
-const baseKind = (k: string) => k.replace(/-mercy$/, '');
 const kinds = mode === 'spectate' ? [a.p1!, a.p2!] : [a.provider!, a.opponent!];
-for (const k of kinds) if (!['random', 'mock-jev', 'jev'].includes(baseKind(k))) { console.error(`unknown player kind ${k}`); process.exit(2); }
+for (const k of kinds) if (!PLAYER_KINDS.includes(baseKind(k))) { console.error(`unknown player kind ${k}`); process.exit(2); }
 
 // Live spend goes through the project ledger (one lock for the whole process); mock never does.
 const liveBudget = kinds.some(k => baseKind(k) === 'jev') ? openBudget(runId) : null;
-const mockBudget = new BudgetGuard(budgetConfigFromEnv(`${logDir}/mock-ledger.jsonl`), runId);
+const mockBudget = openMockBudget(logDir, runId);
 let mockSeq = 0;
-function makeProvider(kind: string, label: string): DecisionProvider {
-	if (kind.endsWith('-mercy')) {
-		return new HandicapProvider(makeProvider(baseKind(kind), label), { mode: 'mercy', strength: Number(a['mercy-strength']) });
-	}
-	if (kind === 'random') return new RandomProvider();
-	if (kind === 'mock-jev') return mockJev(mockBudget, { label, profile: a['mock-profile'], seed: `sodium,${String(++mockSeq).padStart(32, '0')}` }).provider;
-	return jevFromEnv(liveBudget!, { label });
-}
+// Why: each mock-jev player gets its own gateway and seed; random/mercy stay unseeded here.
+const playerFor = (kind: string, label: string) => makeProvider(kind, {
+	liveBudget, mockBudget, label, mercyStrength: Number(a['mercy-strength']), mockProfile: a['mock-profile'],
+	seed: part => part === 'mock' ? `sodium,${String(++mockSeq).padStart(32, '0')}` : undefined,
+});
 
 const children: ChildProcess[] = [];
 const clients: AutonomousClient[] = [];
@@ -109,10 +102,10 @@ if (mode === 'spectate') {
 	const url = 'ws://127.0.0.1:8000/showdown/websocket';
 	const battles = Number(a.battles);
 	const [n1, n2] = ['JEV-Alpha', 'JEV-Beta'];
-	const host = new AutonomousClient({ ...common, url, username: n2, provider: makeProvider(a.p2!, `${a.p2}`), acceptFrom: [n1], maxBattles: battles });
+	const host = new AutonomousClient({ ...common, url, username: n2, provider: playerFor(a.p2!, `${a.p2}`), acceptFrom: [n1], maxBattles: battles });
 	await host.connect();
 	const guest = new AutonomousClient({
-		...common, url, username: n1, provider: makeProvider(a.p1!, `${a.p1}`), maxBattles: battles,
+		...common, url, username: n1, provider: playerFor(a.p1!, `${a.p1}`), maxBattles: battles,
 		challenge: { user: n2, format: a.format! }, rechallenge: true,
 		onBattleStart: roomid => console.log(`[launch] watch: https://localhost.psim.us/${roomid}`),
 	});
@@ -127,14 +120,14 @@ if (mode === 'spectate') {
 	console.log('[launch] server still running for replays; Ctrl-C to stop');
 } else {
 	await startServer(8001);
-	const opponent = new AutonomousClient({ ...common, url: 'ws://127.0.0.1:8001/showdown/websocket', username: 'JEV-Bot', provider: makeProvider(a.opponent!, a.opponent!),
+	const opponent = new AutonomousClient({ ...common, url: 'ws://127.0.0.1:8001/showdown/websocket', username: 'JEV-Bot', provider: playerFor(a.opponent!, a.opponent!),
 		// Why: humans usually press "Battle!" rather than challenging by name; support both.
 		search: true });
 	clients.push(opponent);
 	await opponent.connect();
 	copilot = startCopilot({
 		listenPort: 8000, upstream: 'http://127.0.0.1:8001', uiPort: 8010, logDir,
-		provider: makeProvider(a.provider!, a.provider!), budgetInfo: () => (liveBudget ?? mockBudget).snapshot,
+		provider: playerFor(a.provider!, a.provider!), budgetInfo: () => (liveBudget ?? mockBudget).snapshot,
 	});
 	console.log(`[launch] Copilot ready. Open https://localhost.psim.us/, pick any name, choose "${a.format}" and press "Battle!"`);
 	console.log(`[launch]   (or challenge "JEV-Bot" by name; it is listed in the Lobby). Opponent: JEV-Bot (${a.opponent}).`);

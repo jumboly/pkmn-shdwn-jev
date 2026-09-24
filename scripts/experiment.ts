@@ -6,12 +6,9 @@ import { parseArgs } from 'node:util';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { execSync } from 'node:child_process';
-import { BudgetGuard, budgetConfigFromEnv } from '../src/budget.ts';
-import { jevFromEnv, mockJev, openBudget } from '../src/config.ts';
+import { baseKind, makeProvider, mockJev, openBudget, openMockBudget } from '../src/config.ts';
 import { RandomProvider } from '../src/decision/random.ts';
-import { HandicapProvider } from '../src/decision/handicap.ts';
 import { sharedRateLimiter } from '../src/decision/rate-limiter.ts';
-import type { DecisionProvider } from '../src/decision/types.ts';
 import { JsonlLog, writeText } from '../src/logging.ts';
 import { replayHtml } from '../src/replay.ts';
 import { SHOWDOWN_VERSION } from '../src/showdown/sim.ts';
@@ -43,29 +40,22 @@ const experimentId = a.id ?? `${new Date().toISOString().replace(/[:.]/g, '-')}-
 const outDir = join('runs', experimentId);
 const events = new JsonlLog(join(outDir, 'events.jsonl'));
 const kinds = [a.p1!, a.p2!];
-const baseKind = (k: string) => k.replace(/-mercy$/, '');
 const usesLive = kinds.some(k => baseKind(k) === 'jev');
 const usesMock = kinds.some(k => baseKind(k) === 'mock-jev');
 
 // Live spend always goes through the persistent project ledger; mock spend never touches it.
 const liveBudget = usesLive ? openBudget(experimentId) : null;
-const mockBudget = usesMock ? new BudgetGuard({ ...budgetConfigFromEnv(join(outDir, 'mock-ledger.jsonl')) }, experimentId) : null;
+const mockBudget = usesMock ? openMockBudget(outDir, experimentId) : null;
 if (!usesLive) console.log('[budget] no live JEV player: no paid requests will be made');
 
 const fallback = a.fallback === 'random' ? new RandomProvider('sodium,00000000000000000000000000000fb0') : undefined;
 // Why: one mock gateway per run (not per battle) so its fault stats aggregate into the summary.
 const mock = usesMock ? mockJev(mockBudget!, { profile: a['mock-profile'], seed: 'sodium,0000000000000000000000000000beef', fallback }) : null;
-function makeProvider(kind: string, label: string): DecisionProvider {
-	if (kind.endsWith('-mercy')) {
-		return new HandicapProvider(makeProvider(kind.slice(0, -'-mercy'.length), label), {
-			mode: 'mercy', strength: Number(a['mercy-strength']), seed: seedFor(`${label}|mercy`),
-		});
-	}
-	if (kind === 'random') return new RandomProvider(seedFor(`${label}|provider`));
-	if (kind === 'mock-jev') return mock!.provider;
-	if (kind === 'jev') return jevFromEnv(liveBudget!, { label: 'jev', fallback });
-	throw new Error(`unknown player kind ${kind}`);
-}
+// Why: seeds derive from --seed and the battle/side label so a run is reproducible.
+const playerFor = (kind: string, label: string) => makeProvider(kind, {
+	liveBudget, fallback, mock: mock?.provider, mercyStrength: Number(a['mercy-strength']),
+	seed: part => seedFor(`${label}|${part}`),
+});
 function seedFor(label: string) {
 	return `sodium,${createHash('sha256').update(`${a.seed}|${label}`).digest('hex').slice(0, 32)}`;
 }
@@ -104,8 +94,8 @@ async function worker() {
 		const battleLog = new JsonlLog(join(outDir, 'battles', `${battleId}.jsonl`));
 		const r = await runSimBattle({
 			battleId, format: a.format!, seed: seedFor(`battle|${i}`), log: battleLog, maxTurns: Number(a['max-turns']),
-			p1: { name: `${k1}-p1`, provider: makeProvider(k1, `${battleId}|p1`) },
-			p2: { name: `${k2}-p2`, provider: makeProvider(k2, `${battleId}|p2`) },
+			p1: { name: `${k1}-p1`, provider: playerFor(k1, `${battleId}|p1`) },
+			p2: { name: `${k2}-p2`, provider: playerFor(k2, `${battleId}|p2`) },
 		});
 		const decisions = battleLog.events.filter(e => e.type === 'decision') as any[];
 		const jevUsage = decisions.reduce((acc, d) => {

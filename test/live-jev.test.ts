@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { jevFromEnv, openBudget } from '../src/config.ts';
-import { sampleContext } from '../scripts/sample-context.ts';
+import { sampleContext } from '../src/sim/sample-context.ts';
 
 // Why: paid API. Runs only with RUN_LIVE_JEV_TESTS=1 and always through the project ledger.
 const live = process.env.RUN_LIVE_JEV_TESTS === '1' && !!process.env.AI_GATEWAY_API_KEY;

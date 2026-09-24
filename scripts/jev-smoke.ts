@@ -1,7 +1,7 @@
 // Sends exactly ONE live JEV request through the budget guard. Usage: mise run jev-smoke
 import { jevFromEnv, openBudget } from '../src/config.ts';
 import { buildEvaluateBody } from '../src/decision/jev.ts';
-import { sampleContext } from './sample-context.ts';
+import { sampleContext } from '../src/sim/sample-context.ts';
 
 if (!process.env.AI_GATEWAY_API_KEY) { console.error('AI_GATEWAY_API_KEY is not set'); process.exit(1); }
 const budget = openBudget('smoke-' + new Date().toISOString());

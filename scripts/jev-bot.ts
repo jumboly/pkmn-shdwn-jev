@@ -1,12 +1,11 @@
 // Autonomous Mode: connect JEV to a LOCAL / self-hosted Showdown server as a normal player.
-//   node scripts/jev-bot.ts --name JEV-Bot [--mercy 0.6] [--provider jev|random|mock-jev [--mock-profile flaky]] [--max-battles 3]
+//   node scripts/jev-bot.ts --name JEV-Bot [--mercy 0.6] [--provider jev|random|mock-jev[-mercy] [--mock-profile flaky]] [--max-battles 3]
 //     [--challenge OTHER-BOT [--rechallenge]] [--timer] [--timer-fallback random|none]
 // Then challenge "JEV-Bot" to [Gen 9] Random Battle from the Showdown UI.
 import { parseArgs } from 'node:util';
-import { jevFromEnv, mockJev, openBudget } from '../src/config.ts';
+import { baseKind, isLocalHost, makeProvider, openBudget, openMockBudget } from '../src/config.ts';
 import { HandicapProvider } from '../src/decision/handicap.ts';
 import { RandomProvider } from '../src/decision/random.ts';
-import { BudgetGuard, budgetConfigFromEnv } from '../src/budget.ts';
 import type { DecisionProvider } from '../src/decision/types.ts';
 import { AutonomousClient } from '../src/server/client.ts';
 
@@ -38,24 +37,18 @@ const { values: a } = parseArgs({ options: {
 // Why: connecting a bot to the official public server needs an explicit, separate decision
 // (rules/etiquette); this CLI refuses non-local hosts unless deliberately overridden.
 const host = new URL(a.url!).hostname;
-if (!['localhost', '127.0.0.1', '::1'].includes(host) && !a['allow-remote']) {
+if (!isLocalHost(host) && !a['allow-remote']) {
 	console.error(`refusing to connect to non-local server ${host} (pass --allow-remote for a self-hosted server you control)`);
 	process.exit(1);
 }
 if (/pokemonshowdown\.com|psim\.us/.test(host)) { console.error('official servers are not allowed'); process.exit(1); }
 
 const runId = `server-${new Date().toISOString().replace(/[:.]/g, '-')}-${a.name}`;
-let budget: BudgetGuard | null = null;
-let provider: DecisionProvider;
-if (a.provider === 'jev') {
-	budget = openBudget(runId);
-	provider = jevFromEnv(budget, { label: 'jev' });
-} else if (a.provider === 'mock-jev') {
-	const mockBudget = new BudgetGuard(budgetConfigFromEnv(`runs/${runId}/mock-ledger.jsonl`), runId);
-	provider = mockJev(mockBudget, { profile: a['mock-profile'] }).provider;
-} else {
-	provider = new RandomProvider();
-}
+const kind = baseKind(a.provider!);
+const budget = kind === 'jev' ? openBudget(runId) : null;
+const mockBudget = kind === 'mock-jev' ? openMockBudget(`runs/${runId}`, runId) : null;
+let provider: DecisionProvider = makeProvider(a.provider!, { liveBudget: budget, mockBudget, mockProfile: a['mock-profile'] });
+// Why: --mercy predates the `-mercy` kind suffix and also allows strength 0 (no-mercy pass-through).
 if (a.mercy !== undefined) {
 	const strength = Number(a.mercy);
 	provider = new HandicapProvider(provider, { mode: strength > 0 ? 'mercy' : 'no-mercy', strength });

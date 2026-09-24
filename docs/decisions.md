@@ -78,6 +78,7 @@ All dates are 2026-09-24 unless noted. "Reversible" = how cheap it is to change 
 
 ### D10. Payload limit (user asked: 32KB or 64KB?). Measured, not a byte cap
 - **Method**: `scripts/probe-payload.ts`, 27 live requests, $0.0052 booked in total. The probes are logged in `runs/probes/`.
+  The script was removed after the investigation; see git history.
 
 | mode | what grows | largest OK | smallest failing |
 |---|---|---|---|

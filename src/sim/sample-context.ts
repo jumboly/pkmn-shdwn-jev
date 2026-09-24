@@ -1,7 +1,7 @@
-import { RandomProvider } from '../src/decision/random.ts';
-import type { DecisionContext } from '../src/decision/types.ts';
-import { JsonlLog } from '../src/logging.ts';
-import { runSimBattle } from '../src/sim/run-battle.ts';
+import { RandomProvider } from '../decision/random.ts';
+import type { DecisionContext } from '../decision/types.ts';
+import { JsonlLog } from '../logging.ts';
+import { runSimBattle } from './run-battle.ts';
 
 /** A realistic mid-battle decision context, produced offline by a random-vs-random battle. */
 export async function sampleContext(turn = 5): Promise<DecisionContext> {
